@@ -175,32 +175,32 @@ html, body {
    Todos los tiempos están en milisegundos.
    ===================================================================== */
 const CONFIG = {
-  starsIntro: 220,              // estrellas de fondo suaves antes del clic
-  starsUniverse: 2600,          // estrellas totales del universo (se ajusta según pantalla)
-  nebulaCount: 5,
-  cometIntervalMin: 3500,
-  cometIntervalMax: 8000,
+  starsIntro: 180,              // estrellas de fondo suaves antes del clic
+  starsUniverse: 1200,          // menos estrellas para mejor rendimiento
+  nebulaCount: 2,
+  cometIntervalMin: 999999,
+  cometIntervalMax: 999999,
 
-  fadeInStarsDuration: 1700,    // "miles de estrellas aparecen lentamente" (más ágil)
-  preWarpDelay: 650,            // pausa contemplativa antes de acelerar
-  warpAccelDuration: 1400,
-  warpHoldDuration: 350,
-  warpDecelDuration: 1200,
+  fadeInStarsDuration: 1000,    // "miles de estrellas aparecen lentamente" (más ágil)
+  preWarpDelay: 250,            // pausa contemplativa antes de acelerar
+  warpAccelDuration: 1000,
+  warpHoldDuration: 0,
+  warpDecelDuration: 0,
 
-  formationDuration: 1800,      // el monograma se arma más rápido
-  settleTransition: 650,        // transición de "formándose" a "flotando orgánicamente"
+  formationDuration: 1300,      // el monograma se arma más rápido
+  settleTransition: 350,        // transición de "formándose" a "flotando orgánicamente"
 
-  captionDelay: 450,
-  captionFadeIn: 650,
-  captionHold: 2200,
-  captionFadeOut: 1400,
+  captionDelay: 0,
+  captionFadeIn: 250,
+  captionHold: 999999,
+  captionFadeOut: 0,
 
-  word: 'R ❤️ N',
-  phrase: 'Siempre serás mi universo. ❤️',
+  word: '❤️',
+  phrase: 'Estaré contigo hasta el final, siempre podrás contar conmigo',
 
-  // el monograma ya no da vueltas completas: solo se mece suavemente
-  swayMaxAngle: 0.22,                 // ángulo máximo del balanceo (radianes, ~13°)
-  swaySpeed: (Math.PI * 2) / 9        // un vaivén completo cada ~9s
+  // el monograma ya no da vueltas completas: solo se mece muy suave
+  swayMaxAngle: 0.05,                 // ángulo máximo del balanceo (radianes, ~3°)
+  swaySpeed: (Math.PI * 2) / 14        // un vaivén completo cada ~14s
 };
 
 const REDUCED_MOTION = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -966,11 +966,17 @@ class AnimationController {
     }
 
     if (phase === 'final') {
-      setTimeout(() => this._fadeCaption(), CONFIG.captionDelay);
+      this.warpFactor = 0;
+      this.sparkles.length = 0;
+      this.universe.comets = [];
+      this.captionAlpha = 1;
+      this.captionRunning = true;
+      this.captionStart = performance.now();
     }
   }
 
   _fadeCaption() {
+    this.captionAlpha = 1;
     this.captionStart = performance.now();
     this.captionRunning = true;
   }
@@ -1040,17 +1046,7 @@ class AnimationController {
 
     // ---- texto final (frase) ----
     if (this.captionRunning) {
-      const ce = now - this.captionStart;
-      const { captionFadeIn, captionHold, captionFadeOut } = CONFIG;
-      if (ce < captionFadeIn) {
-        this.captionAlpha = easeOutCubic(ce / captionFadeIn);
-      } else if (ce < captionFadeIn + captionHold) {
-        this.captionAlpha = 1;
-      } else if (ce < captionFadeIn + captionHold + captionFadeOut) {
-        this.captionAlpha = 1 - easeInOutCubic((ce - captionFadeIn - captionHold) / captionFadeOut);
-      } else {
-        this.captionAlpha = 0;
-      }
+      this.captionAlpha = 1;
     }
   }
 
