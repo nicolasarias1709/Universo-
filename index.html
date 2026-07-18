@@ -1,0 +1,1092 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Ricardo · Universo</title>
+  <style>
+/* =============================================================
+   RESET & BASE
+   ============================================================= */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #000;
+  font-family: 'Segoe UI', system-ui, -apple-system, Helvetica, Arial, sans-serif;
+}
+
+/* =============================================================
+   CANVAS DEL UNIVERSO (fondo estrellado + toda la animación)
+   ============================================================= */
+#universe-canvas {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  display: block;
+  background: #000;
+}
+
+/* =============================================================
+   PANTALLA DE INTRO (contenedor del botón)
+   ============================================================= */
+#intro-screen {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 5;
+  transition: opacity 1.4s ease;
+}
+
+#intro-screen.fade-out {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* =============================================================
+   BOTÓN "TE AMO RICARDO"
+   ============================================================= */
+#love-button {
+  position: relative;
+  padding: 22px 46px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 60px;
+  cursor: pointer;
+  color: #f5f0ff;
+  font-size: clamp(16px, 2.6vw, 24px);
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  background: linear-gradient(135deg, rgba(20, 10, 60, 0.65), rgba(70, 20, 120, 0.55));
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  box-shadow:
+    0 0 25px rgba(140, 90, 255, 0.55),
+    0 0 60px rgba(80, 60, 220, 0.35),
+    inset 0 0 18px rgba(255, 255, 255, 0.08);
+  animation: breathe 3.2s ease-in-out infinite;
+  transition: transform 0.35s ease, box-shadow 0.35s ease;
+  overflow: visible;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+#love-button:hover,
+#love-button:focus-visible {
+  transform: scale(1.07);
+  box-shadow:
+    0 0 40px rgba(160, 110, 255, 0.75),
+    0 0 90px rgba(90, 70, 230, 0.5),
+    inset 0 0 22px rgba(255, 255, 255, 0.12);
+  outline: none;
+}
+
+#love-button:active {
+  transform: scale(0.97);
+}
+
+#love-button.clicked {
+  opacity: 0;
+  transform: scale(1.5);
+  transition: opacity 0.8s ease, transform 0.8s ease;
+  pointer-events: none;
+}
+
+.btn-label {
+  position: relative;
+  z-index: 2;
+  white-space: nowrap;
+}
+
+/* halo extra, pulsa detrás del texto */
+.btn-glow {
+  position: absolute;
+  inset: -6px;
+  border-radius: 60px;
+  background: radial-gradient(circle, rgba(150, 120, 255, 0.45), transparent 70%);
+  filter: blur(10px);
+  z-index: 1;
+  animation: glowPulse 3.2s ease-in-out infinite;
+}
+
+@keyframes breathe {
+  0%, 100% { transform: scale(1); }
+  50%      { transform: scale(1.035); }
+}
+
+@keyframes glowPulse {
+  0%, 100% { opacity: 0.55; }
+  50%      { opacity: 1; }
+}
+
+/* =============================================================
+   ACCESIBILIDAD: respetar "reduced motion"
+   ============================================================= */
+@media (prefers-reduced-motion: reduce) {
+  #love-button {
+    animation: none;
+  }
+  .btn-glow {
+    animation: none;
+  }
+}
+
+/* =============================================================
+   RESPONSIVE
+   ============================================================= */
+@media (max-width: 480px) {
+  #love-button {
+    padding: 18px 30px;
+    border-radius: 46px;
+  }
+}
+
+  </style>
+</head>
+<body>
+
+  <!-- Canvas donde vive TODO el universo: estrellas, nebulosas, cometas y el nombre hecho de partículas -->
+  <canvas id="universe-canvas"></canvas>
+
+  <!-- Pantalla inicial: solo el botón, todo lo demás es negro -->
+  <div id="intro-screen">
+    <button id="love-button" aria-label="Presiona para comenzar el viaje">
+      <span class="btn-glow"></span>
+      <span class="btn-label">❤️ Te amo Ricardo ❤️</span>
+    </button>
+  </div>
+
+  <script>
+'use strict';
+
+/* =====================================================================
+   CONFIGURACIÓN GLOBAL
+   Todos los tiempos están en milisegundos.
+   ===================================================================== */
+const CONFIG = {
+  starsIntro: 220,              // estrellas de fondo suaves antes del clic
+  starsUniverse: 2600,          // estrellas totales del universo (se ajusta según pantalla)
+  nebulaCount: 5,
+  cometIntervalMin: 3500,
+  cometIntervalMax: 8000,
+
+  fadeInStarsDuration: 1700,    // "miles de estrellas aparecen lentamente" (más ágil)
+  preWarpDelay: 650,            // pausa contemplativa antes de acelerar
+  warpAccelDuration: 1400,
+  warpHoldDuration: 350,
+  warpDecelDuration: 1200,
+
+  formationDuration: 2500,      // tiempo para que las partículas formen el monograma
+  settleTransition: 900,        // transición de "formándose" a "flotando orgánicamente"
+
+  captionDelay: 650,
+  captionFadeIn: 900,
+  captionHold: 3000,
+  captionFadeOut: 2000,
+
+  word: 'R ❤️ N',
+  phrase: 'Siempre serás mi universo. ❤️',
+
+  // velocidad de rotación del monograma una vez formado (radianes/seg)
+  rotationSpeed: (Math.PI * 2) / 16
+};
+
+const REDUCED_MOTION = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+/* Utilidades */
+const rand = (min, max) => Math.random() * (max - min) + min;
+const randInt = (min, max) => Math.floor(rand(min, max + 1));
+const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
+const lerp = (a, b, t) => a + (b - a) * t;
+// easeInOutCubic, para curvas de aceleración/desaceleración cinematográficas
+const easeInOutCubic = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
+const easeOutCubic = (t) => 1 - Math.pow(1 - t, 3);
+const easeInCubic = (t) => t * t * t;
+
+/* =====================================================================
+   CLASE Particle
+   Partícula genérica reutilizable: chispas del botón, explosión,
+   cometas y estrellas orbitantes alrededor del nombre.
+   ===================================================================== */
+class Particle {
+  constructor(x, y, opts = {}) {
+    this.x = x;
+    this.y = y;
+    this.vx = opts.vx ?? 0;
+    this.vy = opts.vy ?? 0;
+    this.size = opts.size ?? rand(1, 2.4);
+    this.color = opts.color ?? '255,255,255';
+    this.life = 0;
+    this.maxLife = opts.maxLife ?? 1000;
+    this.friction = opts.friction ?? 0.96;
+    this.glow = opts.glow ?? false;
+    this.dead = false;
+  }
+
+  update(dt) {
+    this.life += dt * 1000;
+    this.vx *= Math.pow(this.friction, dt * 60);
+    this.vy *= Math.pow(this.friction, dt * 60);
+    this.x += this.vx * dt * 60;
+    this.y += this.vy * dt * 60;
+    if (this.life >= this.maxLife) this.dead = true;
+  }
+
+  draw(ctx) {
+    const t = 1 - this.life / this.maxLife;
+    const alpha = clamp(t, 0, 1);
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    if (this.glow) {
+      ctx.shadowBlur = 12;
+      ctx.shadowColor = `rgba(${this.color},${alpha})`;
+    }
+    ctx.fillStyle = `rgba(${this.color},${alpha})`;
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+/* =====================================================================
+   CLASE StarField
+   Miles de estrellas de fondo con parpadeo (twinkle), profundidad
+   (parallax) y comportamiento especial de "warp" (viaje espacial).
+   ===================================================================== */
+class StarField {
+  constructor(width, height) {
+    this.width = width;
+    this.height = height;
+    this.stars = [];
+  }
+
+  /** Genera `count` estrellas nuevas, con opción de aparecer con fundido */
+  generate(count, fadeIn = false) {
+    for (let i = 0; i < count; i++) {
+      this.stars.push(this._createStar(fadeIn));
+    }
+  }
+
+  _createStar(fadeIn) {
+    const depth = rand(0.25, 1);           // profundidad -> tamaño/brillo/velocidad parallax
+    return {
+      x: rand(0, this.width),
+      y: rand(0, this.height),
+      prevX: 0,
+      prevY: 0,
+      depth,
+      size: rand(0.4, 1.8) * depth + 0.3,
+      baseAlpha: rand(0.35, 1),
+      alpha: fadeIn ? 0 : rand(0.35, 1),
+      targetAlpha: rand(0.35, 1),
+      twinklePhase: rand(0, Math.PI * 2),
+      twinkleSpeed: rand(0.5, 1.8),
+      drift: rand(0.02, 0.08) * depth,
+      driftAngle: rand(0, Math.PI * 2)
+    };
+  }
+
+  /** Reubica una estrella cerca del centro con ángulo aleatorio (para loop de warp) */
+  _respawnNearCenter(star, cx, cy) {
+    const angle = rand(0, Math.PI * 2);
+    const r = rand(2, 40);
+    star.x = cx + Math.cos(angle) * r;
+    star.y = cy + Math.sin(angle) * r;
+  }
+
+  update(dt, cx, cy, warpFactor) {
+    for (const s of this.stars) {
+      s.prevX = s.x;
+      s.prevY = s.y;
+
+      // parpadeo suave
+      s.twinklePhase += dt * s.twinkleSpeed;
+      s.alpha = lerp(s.alpha, s.baseAlpha * (0.6 + 0.4 * Math.sin(s.twinklePhase)), 0.05);
+
+      // deriva ambiental lenta (sensación de profundidad / parallax)
+      s.x += Math.cos(s.driftAngle) * s.drift * dt * 10;
+      s.y += Math.sin(s.driftAngle) * s.drift * dt * 10;
+
+      // efecto warp: empuje radial desde el centro, más fuerte en estrellas "cercanas" (depth alto)
+      if (warpFactor > 0.001) {
+        const dx = s.x - cx;
+        const dy = s.y - cy;
+        const dist = Math.max(1, Math.hypot(dx, dy));
+        const speed = warpFactor * (200 + s.depth * 900) * dt;
+        s.x += (dx / dist) * speed;
+        s.y += (dy / dist) * speed;
+      }
+
+      // reciclar estrellas que salen de la pantalla
+      const margin = 60;
+      if (s.x < -margin || s.x > this.width + margin || s.y < -margin || s.y > this.height + margin) {
+        if (warpFactor > 0.05) {
+          this._respawnNearCenter(s, cx, cy);
+        } else {
+          s.x = rand(0, this.width);
+          s.y = rand(0, this.height);
+        }
+      }
+    }
+  }
+
+  draw(ctx, warpFactor) {
+    ctx.save();
+    for (const s of this.stars) {
+      const alpha = clamp(s.alpha, 0, 1);
+      if (warpFactor > 0.05) {
+        // modo warp: estela alargada (motion blur / speed line)
+        ctx.strokeStyle = `rgba(210,220,255,${alpha})`;
+        ctx.lineWidth = s.size;
+        ctx.beginPath();
+        ctx.moveTo(s.prevX, s.prevY);
+        ctx.lineTo(s.x, s.y);
+        ctx.stroke();
+      } else {
+        ctx.fillStyle = `rgba(255,255,255,${alpha})`;
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, s.size, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+    ctx.restore();
+  }
+
+  resize(width, height) {
+    const sx = width / this.width;
+    const sy = height / this.height;
+    for (const s of this.stars) {
+      s.x *= sx;
+      s.y *= sy;
+    }
+    this.width = width;
+    this.height = height;
+  }
+}
+
+/* =====================================================================
+   CLASE Nebula
+   Nubes de polvo cósmico / nebulosas: manchas de color suaves que
+   se mueven muy lentamente y laten en opacidad.
+   ===================================================================== */
+class Nebula {
+  constructor(width, height) {
+    const palette = [
+      '80,60,200',    // violeta
+      '40,90,210',    // azul
+      '190,60,160',   // magenta
+      '60,150,220',   // celeste
+      '120,70,180'    // púrpura
+    ];
+    this.x = rand(0, width);
+    this.y = rand(0, height);
+    this.radius = rand(Math.min(width, height) * 0.25, Math.min(width, height) * 0.5);
+    this.color = palette[randInt(0, palette.length - 1)];
+    this.baseAlpha = rand(0.05, 0.11);
+    this.phase = rand(0, Math.PI * 2);
+    this.speed = rand(0.05, 0.15);
+    this.angle = rand(0, Math.PI * 2);
+    this.driftRadius = rand(20, 70);
+    this.originX = this.x;
+    this.originY = this.y;
+  }
+
+  update(dt) {
+    this.phase += dt * this.speed;
+    this.angle += dt * 0.03;
+    this.x = this.originX + Math.cos(this.angle) * this.driftRadius;
+    this.y = this.originY + Math.sin(this.angle) * this.driftRadius;
+  }
+
+  draw(ctx) {
+    const alpha = this.baseAlpha * (0.7 + 0.3 * Math.sin(this.phase));
+    const grad = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, this.radius);
+    grad.addColorStop(0, `rgba(${this.color},${alpha})`);
+    grad.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+/* =====================================================================
+   CLASE Comet
+   Pequeño cometa fugaz con estela, cruza la pantalla ocasionalmente.
+   ===================================================================== */
+class Comet {
+  constructor(width, height) {
+    const fromLeft = Math.random() > 0.5;
+    this.x = fromLeft ? -20 : width + 20;
+    this.y = rand(0, height * 0.6);
+    const speed = rand(6, 11);
+    this.vx = fromLeft ? speed : -speed;
+    this.vy = rand(2, 5);
+    this.size = rand(1.6, 2.6);
+    this.trail = [];
+    this.trailLength = 18;
+    this.dead = false;
+  }
+
+  update(dt, width, height) {
+    this.trail.push({ x: this.x, y: this.y });
+    if (this.trail.length > this.trailLength) this.trail.shift();
+    this.x += this.vx * dt * 60;
+    this.y += this.vy * dt * 60;
+    if (this.x < -80 || this.x > width + 80 || this.y > height + 80) this.dead = true;
+  }
+
+  draw(ctx) {
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    for (let i = 0; i < this.trail.length; i++) {
+      const p = this.trail[i];
+      const t = i / this.trail.length;
+      ctx.fillStyle = `rgba(210,225,255,${t * 0.5})`;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, this.size * t, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.shadowBlur = 14;
+    ctx.shadowColor = 'rgba(255,255,255,0.9)';
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+/* =====================================================================
+   CLASE Universe
+   Compone el fondo cósmico: campo de estrellas + nebulosas + cometas.
+   Se encarga del parallax general y de aplicar el factor de "warp".
+   ===================================================================== */
+class Universe {
+  constructor(width, height) {
+    this.width = width;
+    this.height = height;
+    this.starField = new StarField(width, height);
+    this.starField.generate(CONFIG.starsIntro, false);
+    this.nebulae = [];
+    this.comets = [];
+    this.cameraTime = 0;
+    this._scheduleNextComet();
+  }
+
+  _scheduleNextComet() {
+    this.nextCometIn = rand(CONFIG.cometIntervalMin, CONFIG.cometIntervalMax);
+    this.cometTimer = 0;
+  }
+
+  /** Añade nebulosas (llamado una vez que empieza el viaje) */
+  spawnNebulae() {
+    for (let i = 0; i < CONFIG.nebulaCount; i++) {
+      this.nebulae.push(new Nebula(this.width, this.height));
+    }
+  }
+
+  /** Aumenta la cantidad de estrellas apareciendo poco a poco */
+  expandStars(targetCount) {
+    const missing = targetCount - this.starField.stars.length;
+    if (missing > 0) this.starField.generate(missing, true);
+  }
+
+  update(dt, warpFactor, allowComets) {
+    this.cameraTime += dt;
+    const cx = this.width / 2;
+    const cy = this.height / 2;
+
+    // suave deriva de cámara para dar sensación de parallax incluso sin warp
+    const parallaxX = Math.sin(this.cameraTime * 0.05) * 6;
+    const parallaxY = Math.cos(this.cameraTime * 0.04) * 4;
+
+    this.starField.update(dt, cx + parallaxX, cy + parallaxY, warpFactor);
+    for (const n of this.nebulae) n.update(dt);
+
+    if (allowComets && warpFactor < 0.05) {
+      this.cometTimer += dt * 1000;
+      if (this.cometTimer >= this.nextCometIn) {
+        this.comets.push(new Comet(this.width, this.height));
+        this._scheduleNextComet();
+      }
+    }
+    for (const c of this.comets) c.update(dt, this.width, this.height);
+    this.comets = this.comets.filter((c) => !c.dead);
+  }
+
+  draw(ctx, warpFactor) {
+    for (const n of this.nebulae) n.draw(ctx);
+    this.starField.draw(ctx, warpFactor);
+    for (const c of this.comets) c.draw(ctx);
+  }
+
+  resize(width, height) {
+    this.width = width;
+    this.height = height;
+    this.starField.resize(width, height);
+  }
+}
+
+/* =====================================================================
+   CLASE TextParticles
+   Miles de partículas que viajan desde cualquier parte del universo
+   y se acomodan mediante física (spring-damper) formando la palabra.
+   Una vez formada, flotan orgánicamente con brillo pulsante y
+   pequeñas estrellas orbitando alrededor.
+   ===================================================================== */
+class TextParticles {
+  constructor(width, height) {
+    this.width = width;
+    this.height = height;
+    this.particles = [];
+    this.orbiters = [];
+    this.progress = 0;          // 0 -> 1, avance de la formación
+    this.settleFactor = 0;      // 0 -> 1, cuánto "flotan libremente" ya
+    this.pulsePhase = 0;
+    this.rotationAngle = 0;     // ángulo de giro del monograma (eje vertical, efecto "moneda")
+    this.bounds = { cx: width / 2, cy: height / 2, r: Math.min(width, height) * 0.28 };
+  }
+
+  /**
+   * Genera los puntos objetivo muestreando el texto/monograma dibujado en un
+   * canvas oculto. Se dibuja a mayor resolución (supersampling) y se muestrea
+   * con un paso pequeño para que el contorno se vea suave y no "pixelado".
+   * También detecta los píxeles rojizos (el corazón ❤️) para poder darles
+   * un tono distinto en el dibujado final.
+   */
+  static generateTargets(text, width, height) {
+    const SUPERSAMPLE = 2; // dibuja el texto al doble de resolución
+    const offW = width * SUPERSAMPLE;
+    const offH = height * SUPERSAMPLE;
+
+    const off = document.createElement('canvas');
+    off.width = offW;
+    off.height = offH;
+    const octx = off.getContext('2d');
+    octx.clearRect(0, 0, offW, offH);
+
+    const fontSize = Math.min(width * 0.34, height * 0.5) * SUPERSAMPLE;
+    octx.font = `800 ${fontSize}px "Segoe UI Emoji", "Apple Color Emoji", "Segoe UI", Arial, sans-serif`;
+    octx.textAlign = 'center';
+    octx.textBaseline = 'middle';
+    octx.fillStyle = '#fff';
+    octx.fillText(text, offW / 2, offH / 2);
+
+    const data = octx.getImageData(0, 0, offW, offH).data;
+    // paso de muestreo fino (denso) para un contorno suave
+    const stride = Math.max(2, Math.round(Math.min(offW, offH) / 480));
+    const points = [];
+    for (let y = 0; y < offH; y += stride) {
+      for (let x = 0; x < offW; x += stride) {
+        const idx = (y * offW + x) * 4;
+        const alpha = data[idx + 3];
+        if (alpha > 100) {
+          const r = data[idx];
+          const g = data[idx + 1];
+          const b = data[idx + 2];
+          const isHeart = r > 150 && r > g + 35 && r > b + 35; // píxel rojizo = corazón
+          points.push({
+            x: (x + (Math.random() - 0.5) * stride) / SUPERSAMPLE,
+            y: (y + (Math.random() - 0.5) * stride) / SUPERSAMPLE,
+            isHeart
+          });
+        }
+      }
+    }
+    // limitar cantidad para mantener 60fps en móviles
+    const MAX_POINTS = 3200;
+    if (points.length > MAX_POINTS) {
+      for (let i = points.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [points[i], points[j]] = [points[j], points[i]];
+      }
+      points.length = MAX_POINTS;
+    }
+    return points;
+  }
+
+  /** Crea las partículas dispersas por el universo con destino en `targets` */
+  init(targets, width, height) {
+    this.width = width;
+    this.height = height;
+    this.bounds = { cx: width / 2, cy: height / 2, r: Math.min(width, height) * 0.28 };
+    const { cx, cy } = this.bounds;
+
+    this.particles = targets.map((t) => {
+      const angle = rand(0, Math.PI * 2);
+      const dist = rand(Math.max(width, height) * 0.3, Math.max(width, height) * 0.75);
+      return {
+        x: width / 2 + Math.cos(angle) * dist,
+        y: height / 2 + Math.sin(angle) * dist,
+        vx: 0,
+        vy: 0,
+        // desplazamiento respecto al centro (permite rotar el monograma como bloque)
+        ox: t.x - cx,
+        oy: t.y - cy,
+        isHeart: !!t.isHeart,
+        size: rand(1, 2.2),
+        jitterPhase: rand(0, Math.PI * 2),
+        jitterSpeed: rand(0.4, 1.1),
+        jitterAmp: rand(2, 7),
+        colorMix: rand(0, 1) // mezcla azul/blanco para el glow final
+      };
+    });
+
+    // pequeñas estrellas orbitando alrededor del nombre
+    this.orbiters = [];
+    for (let i = 0; i < 22; i++) {
+      this.orbiters.push({
+        angle: rand(0, Math.PI * 2),
+        radius: rand(this.bounds.r * 0.7, this.bounds.r * 1.35),
+        speed: rand(0.15, 0.4) * (Math.random() > 0.5 ? 1 : -1),
+        size: rand(0.8, 2),
+        twinkle: rand(0, Math.PI * 2)
+      });
+    }
+
+    this.progress = 0;
+    this.settleFactor = 0;
+  }
+
+  /** Recalcula posiciones objetivo (usado al redimensionar la ventana) */
+  retarget(targets, width, height) {
+    this.width = width;
+    this.height = height;
+    this.bounds = { cx: width / 2, cy: height / 2, r: Math.min(width, height) * 0.28 };
+    const { cx, cy } = this.bounds;
+    for (let i = 0; i < this.particles.length && i < targets.length; i++) {
+      this.particles[i].ox = targets[i].x - cx;
+      this.particles[i].oy = targets[i].y - cy;
+    }
+  }
+
+  update(dt, formationElapsedRatio) {
+    // formationElapsedRatio: 0 -> 1 durante la formación; se usa para ir
+    // pasando de "atracción fuerte hacia el punto" a "flotación orgánica"
+    this.progress = clamp(formationElapsedRatio, 0, 1);
+    this.settleFactor = clamp(
+      (formationElapsedRatio - (1 - CONFIG.settleTransition / CONFIG.formationDuration)) /
+        (CONFIG.settleTransition / CONFIG.formationDuration),
+      0,
+      1
+    );
+
+    this.pulsePhase += dt * 1.6;
+    // el giro empieza suave y se estabiliza en velocidad de crucero
+    this.rotationAngle += dt * CONFIG.rotationSpeed * (0.3 + 0.7 * this.settleFactor);
+
+    const springK = lerp(9, 5, this.settleFactor);
+    const damping = Math.pow(0.9, dt * 60);
+    const { cx, cy } = this.bounds;
+    const cosR = Math.cos(this.rotationAngle);
+    this._spinCos = cosR; // reutilizado en draw() para el sombreado de giro
+
+    for (const p of this.particles) {
+      p.jitterPhase += dt * p.jitterSpeed;
+      const jx = Math.sin(p.jitterPhase) * p.jitterAmp * this.settleFactor;
+      const jy = Math.cos(p.jitterPhase * 1.3) * p.jitterAmp * this.settleFactor;
+
+      // giro alrededor del eje vertical: comprime el ancho según cos(ángulo),
+      // dando la ilusión de un emblema girando en el espacio 3D
+      const targetX = cx + p.ox * cosR + jx;
+      const targetY = cy + p.oy + jy;
+
+      p.vx += (targetX - p.x) * springK * dt;
+      p.vy += (targetY - p.y) * springK * dt;
+      p.vx *= damping;
+      p.vy *= damping;
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+    }
+
+    // órbitas de estrellas alrededor del monograma (giran en conjunto)
+    for (const o of this.orbiters) {
+      o.angle += dt * o.speed;
+      o.twinkle += dt * 2;
+    }
+  }
+
+  draw(ctx) {
+    const glowAmount = 0.6 + 0.4 * Math.sin(this.pulsePhase);
+    // más brillante de frente, más tenue de "canto" mientras gira (ilusión 3D)
+    const spinShade = 0.55 + 0.45 * Math.abs(this._spinCos ?? 1);
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+
+    for (const p of this.particles) {
+      let r, g, b;
+      if (p.isHeart) {
+        // corazón: rosa/rojo cálido, mezclado levemente con el glow azulado
+        r = lerp(255, 255, p.colorMix);
+        g = lerp(70, 130, p.colorMix);
+        b = lerp(110, 170, p.colorMix);
+      } else {
+        // letras: mezcla de color azul <-> blanco para el glow "azul y blanco"
+        r = lerp(140, 255, p.colorMix);
+        g = lerp(170, 255, p.colorMix);
+        b = 255;
+      }
+      const alpha = (0.55 + 0.45 * this.progress) * spinShade;
+      ctx.shadowBlur = 6 + 6 * glowAmount * this.settleFactor;
+      ctx.shadowColor = `rgba(${r},${g},${b},0.9)`;
+      ctx.fillStyle = `rgba(${r},${g},${b},${alpha})`;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // estrellitas orbitando (solo visibles cuando el monograma ya está formado)
+    if (this.settleFactor > 0.05) {
+      const { cx, cy } = this.bounds;
+      const cosR = this._spinCos ?? 1;
+      for (const o of this.orbiters) {
+        const ox = cx + Math.cos(o.angle) * o.radius * cosR;
+        const oy = cy + Math.sin(o.angle) * o.radius * 0.4; // órbita elíptica sutil
+        const tw = 0.4 + 0.6 * Math.abs(Math.sin(o.twinkle));
+        ctx.fillStyle = `rgba(255,255,255,${tw * this.settleFactor * spinShade})`;
+        ctx.beginPath();
+        ctx.arc(ox, oy, o.size, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+    ctx.restore();
+  }
+}
+
+/* =====================================================================
+   CLASE AnimationController
+   El director de orquesta: maneja el estado de la escena (fases),
+   el botón del DOM, el bucle de animación y la línea de tiempo
+   cinematográfica completa.
+   ===================================================================== */
+class AnimationController {
+  constructor() {
+    this.canvas = document.getElementById('universe-canvas');
+    this.ctx = this.canvas.getContext('2d');
+    this.introScreen = document.getElementById('intro-screen');
+    this.button = document.getElementById('love-button');
+
+    this.dpr = Math.min(window.devicePixelRatio || 1, 2);
+    this.width = 0;
+    this.height = 0;
+    this._resizeCanvas();
+
+    this.universe = new Universe(this.width, this.height);
+    this.textParticles = new TextParticles(this.width, this.height);
+    this.sparkles = []; // chispas del botón + explosión
+
+    this.phase = 'intro';       // intro -> appearing -> warp -> formation -> final
+    this.phaseStart = 0;
+    this.warpFactor = 0;
+    this.captionAlpha = 0;
+    this.hovering = false;
+    this.hoverTimer = 0;
+
+    this.lastTime = performance.now();
+
+    this._bindEvents();
+    requestAnimationFrame((t) => this._loop(t));
+  }
+
+  /* ---------------- Configuración de canvas y eventos ---------------- */
+
+  _resizeCanvas() {
+    this.width = window.innerWidth;
+    this.height = window.innerHeight;
+    this.canvas.width = this.width * this.dpr;
+    this.canvas.height = this.height * this.dpr;
+    this.ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+  }
+
+  _bindEvents() {
+    window.addEventListener('resize', () => this._onResizeDebounced());
+    window.addEventListener('orientationchange', () => this._onResizeDebounced());
+
+    this.button.addEventListener('mouseenter', () => { this.hovering = true; });
+    this.button.addEventListener('mouseleave', () => { this.hovering = false; });
+    this.button.addEventListener('click', (e) => this._onButtonClick(e));
+    this.button.addEventListener(
+      'touchstart',
+      () => { this.hovering = true; },
+      { passive: true }
+    );
+  }
+
+  /**
+   * En móvil, el resize se dispara en ráfaga (ej. al mostrar/ocultar la
+   * barra de direcciones al hacer scroll). Sin control, cada disparo podía
+   * forzar el recálculo pesado de los ~3200 puntos del texto y generar
+   * tirones. Aquí se espera a que el usuario "termine" de redimensionar.
+   */
+  _onResizeDebounced() {
+    clearTimeout(this._resizeTimeout);
+    this._resizeTimeout = setTimeout(() => this._onResize(), 150);
+  }
+
+  _onResize() {
+    const oldW = this.width;
+    const oldH = this.height;
+    this._resizeCanvas();
+    this.universe.resize(this.width, this.height);
+
+    if (this.phase === 'formation' || this.phase === 'final') {
+      const targets = TextParticles.generateTargets(CONFIG.word, this.width, this.height);
+      this.textParticles.retarget(targets, this.width, this.height);
+    }
+    // Las estrellas del universo ya se reubican proporcionalmente
+    // dentro de Universe.resize() -> StarField.resize().
+    void oldW; void oldH;
+  }
+
+  /* ---------------------- Sonido espacial opcional ---------------------- */
+
+  _playWhoosh() {
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(180, ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(40, ctx.currentTime + 2.2);
+      gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.12, ctx.currentTime + 0.4);
+      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 2.4);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 2.5);
+    } catch (err) {
+      /* audio no disponible, no pasa nada */
+    }
+  }
+
+  /* ---------------------------- Interacción ---------------------------- */
+
+  _onButtonClick() {
+    if (this.phase !== 'intro') return;
+
+    const rect = this.button.getBoundingClientRect();
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+
+    this._spawnExplosion(cx, cy);
+    this.button.classList.add('clicked');
+    this.introScreen.classList.add('fade-out');
+    this._playWhoosh();
+
+    this._setPhase('appearing');
+
+    setTimeout(() => this.universe.expandStars(this._targetStarCount()), 200);
+    setTimeout(() => this._setPhase('warp'), CONFIG.preWarpDelay + CONFIG.fadeInStarsDuration * 0.4);
+  }
+
+  _targetStarCount() {
+    const area = this.width * this.height;
+    return clamp(Math.round(area / 850), 600, CONFIG.starsUniverse);
+  }
+
+  _spawnExplosion(x, y) {
+    const count = REDUCED_MOTION ? 18 : 46;
+    for (let i = 0; i < count; i++) {
+      const angle = rand(0, Math.PI * 2);
+      const speed = rand(2, 9);
+      this.sparkles.push(
+        new Particle(x, y, {
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed,
+          size: rand(1, 3),
+          color: Math.random() > 0.5 ? '190,160,255' : '255,255,255',
+          maxLife: rand(500, 900),
+          glow: true,
+          friction: 0.94
+        })
+      );
+    }
+  }
+
+  _spawnHoverSparkle() {
+    const rect = this.button.getBoundingClientRect();
+    const edge = randInt(0, 3);
+    let x, y;
+    if (edge === 0) { x = rect.left + rand(0, rect.width); y = rect.top; }
+    else if (edge === 1) { x = rect.left + rand(0, rect.width); y = rect.bottom; }
+    else if (edge === 2) { x = rect.left; y = rect.top + rand(0, rect.height); }
+    else { x = rect.right; y = rect.top + rand(0, rect.height); }
+
+    this.sparkles.push(
+      new Particle(x, y, {
+        vx: rand(-0.4, 0.4),
+        vy: rand(-0.8, -0.2),
+        size: rand(0.8, 1.8),
+        color: '210,190,255',
+        maxLife: rand(700, 1300),
+        glow: true,
+        friction: 0.98
+      })
+    );
+  }
+
+  /* ------------------------- Máquina de estados ------------------------- */
+
+  _setPhase(phase) {
+    this.phase = phase;
+    this.phaseStart = performance.now();
+
+    if (phase === 'formation') {
+      const targets = TextParticles.generateTargets(CONFIG.word, this.width, this.height);
+      this.textParticles.init(targets, this.width, this.height);
+      setTimeout(() => this._setPhase('final'), CONFIG.formationDuration);
+    }
+
+    if (phase === 'final') {
+      setTimeout(() => this._fadeCaption(), CONFIG.captionDelay);
+    }
+  }
+
+  _fadeCaption() {
+    this.captionStart = performance.now();
+    this.captionRunning = true;
+  }
+
+  /* ------------------------------ Bucle ------------------------------ */
+
+  _loop(now) {
+    const dt = Math.min((now - this.lastTime) / 1000, 0.05); // clamp para evitar saltos
+    this.lastTime = now;
+
+    this._update(dt, now);
+    this._render();
+
+    requestAnimationFrame((t) => this._loop(t));
+  }
+
+  _update(dt, now) {
+    const elapsed = now - this.phaseStart;
+
+    // ---- cálculo del warpFactor según la fase ----
+    if (this.phase === 'warp') {
+      const accel = CONFIG.warpAccelDuration;
+      const hold = CONFIG.warpHoldDuration;
+      const decel = CONFIG.warpDecelDuration;
+
+      if (elapsed < accel) {
+        this.warpFactor = easeInCubic(elapsed / accel) * (REDUCED_MOTION ? 0.35 : 1);
+      } else if (elapsed < accel + hold) {
+        this.warpFactor = REDUCED_MOTION ? 0.35 : 1;
+      } else if (elapsed < accel + hold + decel) {
+        const t = (elapsed - accel - hold) / decel;
+        this.warpFactor = (1 - easeOutCubic(t)) * (REDUCED_MOTION ? 0.35 : 1);
+      } else {
+        this.warpFactor = 0;
+        this._setPhase('formation');
+      }
+    } else if (this.phase !== 'formation' && this.phase !== 'final') {
+      this.warpFactor = lerp(this.warpFactor, 0, 0.1);
+    } else {
+      this.warpFactor = 0;
+    }
+
+    // ---- universo de fondo ----
+    this.universe.update(dt, this.warpFactor, this.phase === 'intro' || this.phase === 'appearing');
+    if (this.phase === 'warp' && this.universe.nebulae.length === 0) {
+      this.universe.spawnNebulae();
+    }
+
+    // ---- formación / nombre ya formado ----
+    if (this.phase === 'formation' || this.phase === 'final') {
+      const ratio = this.phase === 'formation'
+        ? clamp(elapsed / CONFIG.formationDuration, 0, 1)
+        : 1;
+      this.textParticles.update(dt, ratio);
+    }
+
+    // ---- chispas del botón (hover) ----
+    if (this.phase === 'intro' && this.hovering) {
+      this.hoverTimer += dt * 1000;
+      if (this.hoverTimer > 60) {
+        this._spawnHoverSparkle();
+        this.hoverTimer = 0;
+      }
+    }
+    for (const s of this.sparkles) s.update(dt);
+    this.sparkles = this.sparkles.filter((s) => !s.dead);
+
+    // ---- texto final (frase) ----
+    if (this.captionRunning) {
+      const ce = now - this.captionStart;
+      const { captionFadeIn, captionHold, captionFadeOut } = CONFIG;
+      if (ce < captionFadeIn) {
+        this.captionAlpha = easeOutCubic(ce / captionFadeIn);
+      } else if (ce < captionFadeIn + captionHold) {
+        this.captionAlpha = 1;
+      } else if (ce < captionFadeIn + captionHold + captionFadeOut) {
+        this.captionAlpha = 1 - easeInOutCubic((ce - captionFadeIn - captionHold) / captionFadeOut);
+      } else {
+        this.captionAlpha = 0;
+      }
+    }
+  }
+
+  _render() {
+    const ctx = this.ctx;
+    ctx.clearRect(0, 0, this.width, this.height);
+
+    // fondo negro absoluto de base
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, this.width, this.height);
+
+    this.universe.draw(ctx, this.warpFactor);
+
+    if (this.phase === 'formation' || this.phase === 'final') {
+      this.textParticles.draw(ctx);
+    }
+
+    for (const s of this.sparkles) s.draw(ctx);
+
+    if (this.captionAlpha > 0.01) {
+      this._drawCaption(ctx);
+    }
+  }
+
+  _drawCaption(ctx) {
+    const fontSize = clamp(this.width * 0.028, 16, 30);
+    const y = this.height / 2 + this.textParticles.bounds.r * 1.15 + fontSize;
+
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = `italic 500 ${fontSize}px Georgia, "Times New Roman", serif`;
+    ctx.shadowBlur = 14;
+    ctx.shadowColor = `rgba(150,180,255,${this.captionAlpha})`;
+    ctx.fillStyle = `rgba(230,235,255,${this.captionAlpha})`;
+    ctx.fillText(CONFIG.phrase, this.width / 2, y);
+    ctx.restore();
+  }
+}
+
+/* =====================================================================
+   ARRANQUE
+   ===================================================================== */
+document.addEventListener('DOMContentLoaded', () => {
+  new AnimationController();
+});
+
+  </script>
+</body>
+</html>
