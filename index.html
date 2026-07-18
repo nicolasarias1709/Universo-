@@ -185,19 +185,19 @@ const CONFIG = {
   warpHoldDuration: 350,
   warpDecelDuration: 1200,
 
-  formationDuration: 2500,      // tiempo para que las partículas formen el monograma
-  settleTransition: 900,        // transición de "formándose" a "flotando orgánicamente"
+  formationDuration: 1200,      // tiempo para que las partículas formen el corazón rápido
+  settleTransition: 500,        // transición de "formándose" a "flotando orgánicamente"
 
-  captionDelay: 650,
-  captionFadeIn: 900,
-  captionHold: 3000,
-  captionFadeOut: 2000,
+  captionDelay: 0,
+  captionFadeIn: 200,
+  captionHold: 999999,
+  captionFadeOut: 0,
 
-  word: 'R ❤️ N',
-  phrase: 'Siempre serás mi universo. ❤️',
+  word: '❤️',
+  phrase: 'Estaré contigo hasta el final, siempre podrás contar conmigo',
 
   // velocidad de rotación del monograma una vez formado (radianes/seg)
-  rotationSpeed: (Math.PI * 2) / 16
+  rotationSpeed: (Math.PI * 2) / 20
 };
 
 const REDUCED_MOTION = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -1061,8 +1061,13 @@ class AnimationController {
   }
 
   _drawCaption(ctx) {
-    const fontSize = clamp(this.width * 0.028, 16, 30);
-    const y = this.height / 2 + this.textParticles.bounds.r * 1.15 + fontSize;
+    const fontSize = clamp(this.width * 0.024, 14, 26);
+    const lineHeight = fontSize * 1.35;
+    const maxWidth = Math.min(this.width * 0.88, 420);
+    const lines = this._wrapText(ctx, CONFIG.phrase, maxWidth);
+    const totalHeight = lines.length * lineHeight;
+    const centerY = this.height / 2 + this.textParticles.bounds.r * 1.05;
+    const y = Math.min(centerY, this.height - totalHeight - 28);
 
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
@@ -1072,8 +1077,32 @@ class AnimationController {
     ctx.shadowBlur = 14;
     ctx.shadowColor = `rgba(150,180,255,${this.captionAlpha})`;
     ctx.fillStyle = `rgba(230,235,255,${this.captionAlpha})`;
-    ctx.fillText(CONFIG.phrase, this.width / 2, y);
+
+    for (let i = 0; i < lines.length; i++) {
+      const lineY = y + (i - (lines.length - 1) / 2) * lineHeight;
+      ctx.fillText(lines[i], this.width / 2, lineY);
+    }
     ctx.restore();
+  }
+
+  _wrapText(ctx, text, maxWidth) {
+    const words = text.split(' ');
+    const lines = [];
+    let current = '';
+
+    for (const word of words) {
+      const testLine = current ? `${current} ${word}` : word;
+      if (ctx.measureText(testLine).width <= maxWidth) {
+        current = testLine;
+      } else {
+        if (current) {
+          lines.push(current);
+        }
+        current = word;
+      }
+    }
+    if (current) lines.push(current);
+    return lines;
   }
 }
 
