@@ -58,14 +58,16 @@ html, body {
    ============================================================= */
 #love-button {
   position: relative;
-  padding: 22px 46px;
+  max-width: min(92vw, 560px);
+  padding: 22px 42px;
   border: 1px solid rgba(255, 255, 255, 0.25);
   border-radius: 60px;
   cursor: pointer;
   color: #f5f0ff;
-  font-size: clamp(16px, 2.6vw, 24px);
+  font-size: clamp(14px, 2.3vw, 22px);
   font-weight: 600;
   letter-spacing: 0.5px;
+  line-height: 1.4;
   background: linear-gradient(135deg, rgba(20, 10, 60, 0.65), rgba(70, 20, 120, 0.55));
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
@@ -104,7 +106,7 @@ html, body {
 .btn-label {
   position: relative;
   z-index: 2;
-  white-space: nowrap;
+  white-space: normal;
 }
 
 /* halo extra, pulsa detrás del texto */
@@ -161,7 +163,7 @@ html, body {
   <div id="intro-screen">
     <button id="love-button" aria-label="Presiona para comenzar el viaje">
       <span class="btn-glow"></span>
-      <span class="btn-label">❤️ Te amo Ricardo ❤️</span>
+      <span class="btn-label">❤️ Te amo Ricardo Hernandez ❤️</span>
     </button>
   </div>
 
@@ -185,19 +187,20 @@ const CONFIG = {
   warpHoldDuration: 350,
   warpDecelDuration: 1200,
 
-  formationDuration: 2500,      // tiempo para que las partículas formen el monograma
-  settleTransition: 900,        // transición de "formándose" a "flotando orgánicamente"
+  formationDuration: 1800,      // el monograma se arma más rápido
+  settleTransition: 650,        // transición de "formándose" a "flotando orgánicamente"
 
-  captionDelay: 650,
-  captionFadeIn: 900,
-  captionHold: 3000,
-  captionFadeOut: 2000,
+  captionDelay: 450,
+  captionFadeIn: 650,
+  captionHold: 2200,
+  captionFadeOut: 1400,
 
   word: 'R ❤️ N',
   phrase: 'Siempre serás mi universo. ❤️',
 
-  // velocidad de rotación del monograma una vez formado (radianes/seg)
-  rotationSpeed: (Math.PI * 2) / 16
+  // el monograma ya no da vueltas completas: solo se mece suavemente
+  swayMaxAngle: 0.22,                 // ángulo máximo del balanceo (radianes, ~13°)
+  swaySpeed: (Math.PI * 2) / 9        // un vaivén completo cada ~9s
 };
 
 const REDUCED_MOTION = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -557,7 +560,8 @@ class TextParticles {
     this.progress = 0;          // 0 -> 1, avance de la formación
     this.settleFactor = 0;      // 0 -> 1, cuánto "flotan libremente" ya
     this.pulsePhase = 0;
-    this.rotationAngle = 0;     // ángulo de giro del monograma (eje vertical, efecto "moneda")
+    this.spinTime = 0;          // acumulador de tiempo para el balanceo suave
+    this.rotationAngle = 0;     // ángulo actual del balanceo (eje vertical)
     this.bounds = { cx: width / 2, cy: height / 2, r: Math.min(width, height) * 0.28 };
   }
 
@@ -686,24 +690,30 @@ class TextParticles {
     );
 
     this.pulsePhase += dt * 1.6;
-    // el giro empieza suave y se estabiliza en velocidad de crucero
-    this.rotationAngle += dt * CONFIG.rotationSpeed * (0.3 + 0.7 * this.settleFactor);
+    // balanceo suave y acotado (ya no da vueltas completas): un leve vaivén
+    // que aparece solo cuando el monograma está formado (settleFactor)
+    this.spinTime += dt;
+    this.rotationAngle =
+      Math.sin(this.spinTime * CONFIG.swaySpeed) * CONFIG.swayMaxAngle * this.settleFactor;
 
     const springK = lerp(9, 5, this.settleFactor);
     const damping = Math.pow(0.9, dt * 60);
     const { cx, cy } = this.bounds;
-    const cosR = Math.cos(this.rotationAngle);
-    this._spinCos = cosR; // reutilizado en draw() para el sombreado de giro
+    const sinA = Math.sin(this.rotationAngle);
+    const cosA = Math.cos(this.rotationAngle);
+    this._sinA = sinA;
+    this._cosA = cosA;
 
     for (const p of this.particles) {
       p.jitterPhase += dt * p.jitterSpeed;
       const jx = Math.sin(p.jitterPhase) * p.jitterAmp * this.settleFactor;
       const jy = Math.cos(p.jitterPhase * 1.3) * p.jitterAmp * this.settleFactor;
 
-      // giro alrededor del eje vertical: comprime el ancho según cos(ángulo),
-      // dando la ilusión de un emblema girando en el espacio 3D
-      const targetX = cx + p.ox * cosR + jx;
-      const targetY = cy + p.oy + jy;
+      // balanceo: rotación 2D leve y acotada (nunca da la vuelta completa)
+      const rx = p.ox * cosA - p.oy * sinA;
+      const ry = p.ox * sinA + p.oy * cosA;
+      const targetX = cx + rx + jx;
+      const targetY = cy + ry + jy;
 
       p.vx += (targetX - p.x) * springK * dt;
       p.vy += (targetY - p.y) * springK * dt;
@@ -722,8 +732,6 @@ class TextParticles {
 
   draw(ctx) {
     const glowAmount = 0.6 + 0.4 * Math.sin(this.pulsePhase);
-    // más brillante de frente, más tenue de "canto" mientras gira (ilusión 3D)
-    const spinShade = 0.55 + 0.45 * Math.abs(this._spinCos ?? 1);
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
 
@@ -740,7 +748,7 @@ class TextParticles {
         g = lerp(170, 255, p.colorMix);
         b = 255;
       }
-      const alpha = (0.55 + 0.45 * this.progress) * spinShade;
+      const alpha = 0.55 + 0.45 * this.progress;
       ctx.shadowBlur = 6 + 6 * glowAmount * this.settleFactor;
       ctx.shadowColor = `rgba(${r},${g},${b},0.9)`;
       ctx.fillStyle = `rgba(${r},${g},${b},${alpha})`;
@@ -749,15 +757,19 @@ class TextParticles {
       ctx.fill();
     }
 
-    // estrellitas orbitando (solo visibles cuando el monograma ya está formado)
+    // estrellitas orbitando (solo visibles cuando el monograma ya está formado,
+    // se mecen en conjunto con el mismo balanceo suave)
     if (this.settleFactor > 0.05) {
       const { cx, cy } = this.bounds;
-      const cosR = this._spinCos ?? 1;
+      const sinA = this._sinA ?? 0;
+      const cosA = this._cosA ?? 1;
       for (const o of this.orbiters) {
-        const ox = cx + Math.cos(o.angle) * o.radius * cosR;
-        const oy = cy + Math.sin(o.angle) * o.radius * 0.4; // órbita elíptica sutil
+        const lx = Math.cos(o.angle) * o.radius;
+        const ly = Math.sin(o.angle) * o.radius * 0.4; // órbita elíptica sutil
+        const ox = cx + lx * cosA - ly * sinA;
+        const oy = cy + lx * sinA + ly * cosA;
         const tw = 0.4 + 0.6 * Math.abs(Math.sin(o.twinkle));
-        ctx.fillStyle = `rgba(255,255,255,${tw * this.settleFactor * spinShade})`;
+        ctx.fillStyle = `rgba(255,255,255,${tw * this.settleFactor})`;
         ctx.beginPath();
         ctx.arc(ox, oy, o.size, 0, Math.PI * 2);
         ctx.fill();
